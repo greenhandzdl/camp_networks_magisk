@@ -1,6 +1,6 @@
 {
-  "version": "v2.0",
-  "versionCode": 2,
-  "zipUrl": "https://github.com/greenhandzdl/camp_networks_magisk/releases/download/v2.0/drcom-wlan-login.zip",
-  "changelog": "https://github.com/greenhandzdl/camp_networks_magisk/releases/tag/v2.0"
+  "version": "v2.0.1",
+  "versionCode": 3,
+  "zipUrl": "https://github.com/greenhandzdl/camp_networks_magisk/releases/download/v2.0.1/drcom-wlan-login.zip",
+  "changelog": "https://github.com/greenhandzdl/camp_networks_magisk/releases/tag/v2.0.1"
 }
