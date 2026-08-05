@@ -85,17 +85,13 @@ jobs:
           cp drcom-wlan-login.zip "/tmp/${TAG}.zip"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin releases:releases --depth 1 || true
-          if git show-ref --verify --quiet refs/heads/releases; then
-            git checkout releases
-          else
-            git checkout --orphan releases
-            git rm -rf --cached . >/dev/null 2>&1 || true
-            git clean -fd >/dev/null 2>&1 || true
-          fi
+          # 每次发布重建 orphan 分支：不累积历史快照，分支始终最小化
+          # 同 tag 重复发布时直接覆盖（latest.zip 与 {tag}.zip 均以本次为准）
+          git checkout --orphan releases
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git clean -fd >/dev/null 2>&1 || true
           cp "/tmp/${TAG}.zip" "${TAG}.zip"
-          # latest.zip 始终保持最新版（版本号冲突时直接覆盖）
           cp "/tmp/${TAG}.zip" latest.zip
           git add "${TAG}.zip" latest.zip
-          git commit -m "release: ${TAG}" || echo "[INFO] 内容无变化，跳过提交"
-          git push origin releases
+          git commit -m "release: ${TAG}"
+          git push --force origin releases
