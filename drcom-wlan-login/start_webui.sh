@@ -11,6 +11,7 @@ if [ -f "$MODDIR/config.env" ] && [ ! -f "$DATA_DIR/config.env" ]; then
     rm -f "$MODDIR/config.env"
 fi
 export DRCOM_CONFIG_DIR="$DATA_DIR"
+export DRCOM_MOD_DIR="$MODDIR"
 CONFIG_FILE="$DATA_DIR/config.env"
 
 cd "$MODDIR/system/bin/python_vers" || exit 1
