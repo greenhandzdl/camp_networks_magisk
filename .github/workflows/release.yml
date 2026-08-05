@@ -78,24 +78,33 @@ jobs:
       - name: Publish zip to releases branch (jsDelivr CDN 加速)
         run: |
           TAG="$TAG_NAME"
-          cp drcom-wlan-login.zip "/tmp/${TAG}.zip"
+          NEW_ZIP="/tmp/${TAG}.zip"
+          cp drcom-wlan-login.zip "$NEW_ZIP"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # 签出已有 releases 分支（保留历史版本），不存在则创建
-          git fetch origin releases:releases --depth 1 2>/dev/null || true
-          if git show-ref --verify --quiet refs/heads/releases; then
-            git checkout releases
-          else
-            git checkout --orphan releases
-            git rm -rf --cached . >/dev/null 2>&1 || true
-            git clean -fd >/dev/null 2>&1 || true
+
+          # 1. 备份已有 releases 分支的所有 zip（保留历史版本）
+          BACKUP_DIR="/tmp/releases_backup"
+          mkdir -p "$BACKUP_DIR"
+          git fetch origin releases --depth 1 2>/dev/null || true
+          if git show-ref --verify --quiet refs/remotes/origin/releases; then
+            # 列出远程 releases 分支的所有 zip 文件并复制到备份目录
+            for f in $(git ls-tree --name-only origin/releases | grep '\.zip$'); do
+              git show "origin/releases:$f" > "$BACKUP_DIR/$f"
+            done
           fi
-          # 覆盖同 tag 文件（git add 自动检测内容变化，无变化则不产生新提交）
-          cp "/tmp/${TAG}.zip" "${TAG}.zip"
-          cp "/tmp/${TAG}.zip" latest.zip
-          git add "${TAG}.zip" latest.zip
-          git diff --cached --quiet && echo "[INFO] zip 内容无变化，跳过提交" || git commit -m "release: ${TAG}"
-          git push origin releases
+          # 加入本次新 zip + 更新 latest.zip
+          cp "$NEW_ZIP" "$BACKUP_DIR/${TAG}.zip"
+          cp "$NEW_ZIP" "$BACKUP_DIR/latest.zip"
+
+          # 2. 重建 orphan 分支（始终只有 1 个 commit，无历史）
+          git checkout --orphan releases
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git clean -fd >/dev/null 2>&1 || true
+          cp "$BACKUP_DIR"/*.zip .
+          git add *.zip
+          git commit -m "release: ${TAG}"
+          git push --force origin releases
 
       # 最终：多次刷新 jsDelivr CDN 缓存（边缘节点缓存顽固，单次 purge 不够）
       - name: Purge jsDelivr CDN cache (retry)
