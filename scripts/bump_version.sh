@@ -91,6 +91,21 @@ rm -f "${PROP_FILE}.bak"
 
 ok "已更新 module.prop"
 
+# ---------- 同步更新 update.json ----------
+UPDATE_JSON="$REPO_ROOT/update.json"
+if [[ -f "$UPDATE_JSON" ]]; then
+    REPO_URL="https://github.com/$(git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||')"
+    cat > "$UPDATE_JSON" << EOJSON
+{
+  "version": "$NEW_VERSION",
+  "versionCode": $NEW_CODE,
+  "zipUrl": "$REPO_URL/releases/download/$NEW_VERSION/drcom-wlan-login.zip",
+  "changelog": "$REPO_URL/releases/tag/$NEW_VERSION"
+}
+EOJSON
+    ok "已同步更新 update.json"
+fi
+
 # ---------- 收集自上一标签以来的提交 ----------
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
@@ -111,9 +126,12 @@ $COMMITS"
 
 # ---------- Git 提交 ----------
 git add "$PROP_FILE"
+if [[ -f "$UPDATE_JSON" ]]; then
+    git add "$UPDATE_JSON"
+fi
 git commit -m "chore: bump version to $NEW_VERSION" --no-verify
 
-ok "已提交 module.prop"
+ok "已提交 module.prop 和 update.json"
 
 # ---------- 创建标签 ----------
 git tag -a "$NEW_VERSION" -m "$TAG_MSG"
