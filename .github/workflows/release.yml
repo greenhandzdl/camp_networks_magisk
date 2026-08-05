@@ -81,16 +81,21 @@ jobs:
           cp drcom-wlan-login.zip "/tmp/${TAG}.zip"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # 每次发布重建 orphan 分支：不累积历史快照，分支始终最小化
-          # 同 tag 重复发布时直接覆盖（latest.zip 与 {tag}.zip 均以本次为准）
-          git checkout --orphan releases
-          git rm -rf --cached . >/dev/null 2>&1 || true
-          git clean -fd >/dev/null 2>&1 || true
+          # 签出已有 releases 分支（保留历史版本），不存在则创建
+          git fetch origin releases:releases --depth 1 2>/dev/null || true
+          if git show-ref --verify --quiet refs/heads/releases; then
+            git checkout releases
+          else
+            git checkout --orphan releases
+            git rm -rf --cached . >/dev/null 2>&1 || true
+            git clean -fd >/dev/null 2>&1 || true
+          fi
+          # 覆盖同 tag 文件（git add 自动检测内容变化，无变化则不产生新提交）
           cp "/tmp/${TAG}.zip" "${TAG}.zip"
           cp "/tmp/${TAG}.zip" latest.zip
           git add "${TAG}.zip" latest.zip
-          git commit -m "release: ${TAG}"
-          git push --force origin releases
+          git diff --cached --quiet && echo "[INFO] zip 内容无变化，跳过提交" || git commit -m "release: ${TAG}"
+          git push origin releases
 
       # 最终：多次刷新 jsDelivr CDN 缓存（边缘节点缓存顽固，单次 purge 不够）
       - name: Purge jsDelivr CDN cache (retry)
