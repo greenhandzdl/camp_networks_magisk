@@ -94,6 +94,8 @@ jobs:
             git clean -fd >/dev/null 2>&1 || true
           fi
           cp "/tmp/${TAG}.zip" "${TAG}.zip"
-          git add "${TAG}.zip"
-          git commit -m "release: ${TAG}"
+          # latest.zip 始终保持最新版（版本号冲突时直接覆盖）
+          cp "/tmp/${TAG}.zip" latest.zip
+          git add "${TAG}.zip" latest.zip
+          git commit -m "release: ${TAG}" || echo "[INFO] 内容无变化，跳过提交"
           git push origin releases
