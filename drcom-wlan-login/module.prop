@@ -1,0 +1,6 @@
+id=drcom-wlan-login
+name=Dr.COM WLAN Auto Login
+version=v1.0
+versionCode=1
+author=greenhandzdl
+description=WebUI for Dr.COM WLAN login (manual trigger). No auto-start.

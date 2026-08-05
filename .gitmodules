@@ -1,0 +1,3 @@
+[submodule "drcom-wlan-login/system/bin"]
+	path = drcom-wlan-login/system/bin
+	url = https://github.com/greenhandzdl/camp_networks
