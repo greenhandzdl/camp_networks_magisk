@@ -4,4 +4,4 @@ version=v2.3.0
 versionCode=9
 author=greenhandzdl
 description=WebUI for Dr.COM WLAN login (manual trigger). No auto-start.
-updateJson=https://cdn.jsdelivr.net/gh/greenhandzdl/camp_networks_magisk@main/update.json
+updateJson=https://raw.githubusercontent.com/greenhandzdl/camp_networks_magisk/main/update.json
