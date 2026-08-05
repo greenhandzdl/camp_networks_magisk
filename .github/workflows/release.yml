@@ -22,8 +22,12 @@ jobs:
         run: |
           VERSION=$(grep '^version=' drcom-wlan-login/module.prop | cut -d= -f2)
           NAME=$(grep '^name=' drcom-wlan-login/module.prop | cut -d= -f2)
+          VERSION_CODE=$(grep '^versionCode=' drcom-wlan-login/module.prop | cut -d= -f2)
+          TAG=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "RELEASE_NAME=$NAME $VERSION" >> "$GITHUB_ENV"
           echo "REPO=${{ github.repository }}" >> "$GITHUB_ENV"
 
@@ -32,6 +36,19 @@ jobs:
           cd drcom-wlan-login
           zip -r ../drcom-wlan-login.zip . \
             -x '.git*' '*.pyc' '__pycache__/*' '.DS_Store'
+
+      - name: Generate update.json
+        run: |
+          REPO_URL="https://github.com/${{ env.REPO }}"
+          TAG="${{ steps.prop.outputs.tag }}"
+          cat > update.json << EOF
+          {
+            "version": "${{ steps.prop.outputs.version }}",
+            "versionCode": ${{ steps.prop.outputs.versionCode }},
+            "zipUrl": "${REPO_URL}/releases/download/${TAG}/drcom-wlan-login.zip",
+            "changelog": "${REPO_URL}/releases/tag/${TAG}"
+          }
+          EOF
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -46,7 +63,11 @@ jobs:
             1. 下载下方 `.zip` 文件
             2. 在 Magisk Manager 中选择「从本地安装」
             3. 刷入后重启（推荐）
-          files: drcom-wlan-login.zip
+
+            > Magisk Manager 已集成自动更新检测，有新版本时会在模块页面显示更新按钮。
+          files: |
+            drcom-wlan-login.zip
+            update.json
           draft: false
           prerelease: false
         env:

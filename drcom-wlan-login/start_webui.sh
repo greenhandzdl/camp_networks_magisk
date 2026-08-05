@@ -16,28 +16,37 @@ if [ -f "$MODDIR/config.env" ]; then
     fi
 fi
 
-# ---------- 检查并终止已有进程 ----------
-OLD_PID=$(pgrep -f "python3 webui.py")
-if [ -n "$OLD_PID" ]; then
-    echo "检测到已有 WebUI 服务 (PID: $OLD_PID)，正在停止..."
-    kill $OLD_PID
-    sleep 1
-    # 若未终止，强制杀死
-    if pgrep -f "python3 webui.py" > /dev/null; then
-        kill -9 $OLD_PID
-        echo "强制停止旧服务。"
-    else
-        echo "旧服务已停止。"
-    fi
+# ---------- 彻底清理端口占用 ----------
+# 1. 按进程名杀
+pkill -f "python3 webui.py" 2>/dev/null
+pkill -f "python3.*webui" 2>/dev/null
+sleep 0.5
+
+# 2. 按端口杀（兜底，防止残留进程占用）
+if command -v fuser >/dev/null 2>&1; then
+    fuser -k ${WEBUI_PORT}/tcp >/dev/null 2>&1
+fi
+sleep 0.5
+
+# 3. 最终确认
+if pgrep -f "webui.py" >/dev/null 2>&1; then
+    pkill -9 -f "webui.py" 2>/dev/null
+    sleep 0.5
 fi
 
 # ---------- 启动新服务 ----------
 nohup python3 webui.py > /data/local/tmp/drcom_webui.log 2>&1 &
 NEW_PID=$!
-echo "WebUI 已启动，新 PID: $NEW_PID，端口: $WEBUI_PORT"
+echo "WebUI 已启动，PID: $NEW_PID，端口: $WEBUI_PORT"
 
 # 等待服务就绪
 sleep 2
 
-# 尝试自动打开浏览器
-am start -a android.intent.action.VIEW -d "http://127.0.0.1:${WEBUI_PORT}" 2>/dev/null || echo "无法自动打开浏览器，请手动访问 http://127.0.0.1:${WEBUI_PORT}"
+# 检查是否启动成功
+if kill -0 $NEW_PID 2>/dev/null; then
+    am start -a android.intent.action.VIEW -d "http://127.0.0.1:${WEBUI_PORT}" 2>/dev/null \
+      || echo "无法自动打开浏览器，请手动访问 http://127.0.0.1:${WEBUI_PORT}"
+else
+    echo "启动失败，查看日志: cat /data/local/tmp/drcom_webui.log"
+    cat /data/local/tmp/drcom_webui.log 2>/dev/null
+fi
