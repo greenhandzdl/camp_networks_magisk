@@ -35,7 +35,7 @@ jobs:
         run: |
           cd drcom-wlan-login
           zip -r ../drcom-wlan-login.zip . \
-            -x '.git*' '*.pyc' '__pycache__/*' '.DS_Store'
+            -x '.git*' '*/.git*' '*.pyc' '__pycache__/*' '*/__pycache__/*' '.DS_Store' '*/.DS_Store'
 
       - name: Generate update.json
         run: |
@@ -49,6 +49,10 @@ jobs:
             "changelog": "${REPO_URL}/releases/tag/${TAG}"
           }
           EOF
+
+      - name: Purge jsDelivr CDN cache
+        run: |
+          curl -s "https://purge.jsdelivr.net/gh/${{ env.REPO }}@main/update.json" || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
