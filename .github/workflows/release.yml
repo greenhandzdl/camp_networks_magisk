@@ -51,10 +51,6 @@ jobs:
           }
           EOF
 
-      - name: Purge jsDelivr CDN cache
-        run: |
-          curl -s "https://purge.jsdelivr.net/gh/${{ env.REPO }}@main/update.json" || true
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -95,3 +91,19 @@ jobs:
           git add "${TAG}.zip" latest.zip
           git commit -m "release: ${TAG}"
           git push --force origin releases
+
+      # 最终：多次刷新 jsDelivr CDN 缓存（边缘节点缓存顽固，单次 purge 不够）
+      - name: Purge jsDelivr CDN cache (retry)
+        run: |
+          TAG="$TAG_NAME"
+          REPO="${{ env.REPO }}"
+          for round in 1 2 3; do
+            echo "=== Purge round $round ==="
+            for path in "@main/update.json" "@releases/latest.zip" "@releases/${TAG}.zip"; do
+              status=$(curl -s "https://purge.jsdelivr.net/gh/${REPO}${path}" | python3 -c "import json,sys;d=json.load(sys.stdin);p=d.get('paths',{});k=list(p.keys())[0] if p else '';print('throttled' if p.get(k,{}).get('throttled') else 'ok')" 2>/dev/null || echo "error")
+              echo "  ${path}: ${status}"
+            done
+            [ $round -lt 3 ] && sleep 15
+          done
+          echo "=== Verify ==="
+          curl -sL "https://cdn.jsdelivr.net/gh/${REPO}@main/update.json" | python3 -c "import json,sys;d=json.load(sys.stdin);print(f\"CDN: {d['version']} code={d['versionCode']}\")"
