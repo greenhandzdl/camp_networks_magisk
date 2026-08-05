@@ -30,6 +30,7 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "RELEASE_NAME=$NAME $VERSION" >> "$GITHUB_ENV"
           echo "REPO=${{ github.repository }}" >> "$GITHUB_ENV"
+          echo "TAG_NAME=$TAG" >> "$GITHUB_ENV"
 
       - name: Build Magisk Module ZIP
         run: |
@@ -40,7 +41,7 @@ jobs:
       - name: Generate update.json
         run: |
           REPO_URL="https://github.com/${{ env.REPO }}"
-          TAG="${{ steps.prop.outputs.tag }}"
+          TAG="$TAG_NAME"
           cat > update.json << EOF
           {
             "version": "${{ steps.prop.outputs.version }}",
@@ -76,3 +77,23 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 必须放在最后：切换分支会清理工作区文件
+      - name: Publish zip to releases branch (jsDelivr CDN 加速)
+        run: |
+          TAG="$TAG_NAME"
+          cp drcom-wlan-login.zip "/tmp/${TAG}.zip"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin releases:releases --depth 1 || true
+          if git show-ref --verify --quiet refs/heads/releases; then
+            git checkout releases
+          else
+            git checkout --orphan releases
+            git rm -rf --cached . >/dev/null 2>&1 || true
+            git clean -fd >/dev/null 2>&1 || true
+          fi
+          cp "/tmp/${TAG}.zip" "${TAG}.zip"
+          git add "${TAG}.zip"
+          git commit -m "release: ${TAG}"
+          git push origin releases
