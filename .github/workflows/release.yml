@@ -1,0 +1,53 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Read module.prop version
+        id: prop
+        run: |
+          VERSION=$(grep '^version=' drcom-wlan-login/module.prop | cut -d= -f2)
+          NAME=$(grep '^name=' drcom-wlan-login/module.prop | cut -d= -f2)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_NAME=$NAME $VERSION" >> "$GITHUB_ENV"
+          echo "REPO=${{ github.repository }}" >> "$GITHUB_ENV"
+
+      - name: Build Magisk Module ZIP
+        run: |
+          cd drcom-wlan-login
+          zip -r ../drcom-wlan-login.zip . \
+            -x '.git*' '*.pyc' '__pycache__/*' '.DS_Store'
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ env.RELEASE_NAME }}"
+          body: |
+            ## 变更内容
+
+            请查看 [提交记录](https://github.com/${{ env.REPO }}/commits) 获取详细变更。
+
+            ### 安装方式
+            1. 下载下方 `.zip` 文件
+            2. 在 Magisk Manager 中选择「从本地安装」
+            3. 刷入后重启（推荐）
+          files: drcom-wlan-login.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
