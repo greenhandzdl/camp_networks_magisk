@@ -144,10 +144,10 @@ echo -e "${CYAN}──────────────${NC}"
 echo ""
 
 # ---------- 推送 ----------
+BRANCH=$(git branch --show-current)
 read -p "是否推送到远程？(y/N) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    BRANCH=$(git branch --show-current)
     info "推送 $BRANCH 和标签 $NEW_VERSION ..."
     git push origin "$BRANCH" --tags
     ok "推送完成！GitHub Actions 将自动构建 Release。"
