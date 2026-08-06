@@ -3,5 +3,5 @@ name=Dr.COM WLAN Auto Login
 version=v2.6.0
 versionCode=24
 author=greenhandzdl
-description=WebUI for Dr.COM WLAN login (manual trigger). No auto-start.
+description=WebUI for Dr.COM WLAN login. Supports auto-login and auto-open on boot.
 updateJson=https://raw.githubusercontent.com/greenhandzdl/camp_networks_magisk/main/update.json
