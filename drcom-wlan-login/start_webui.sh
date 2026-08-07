@@ -31,9 +31,24 @@ fi
 LOG_FILE=$(read_cfg LOG_FILE)
 [ -n "$LOG_FILE" ] || LOG_FILE=/data/local/tmp/drcom_webui.log
 
-# ---------- 彻底清理端口占用 ----------
-pkill -f "python3 webui.py" 2>/dev/null
-pkill -f "python3.*webui" 2>/dev/null
+# ---------- 检查 WebUI 是否已在运行 ----------
+if pgrep -f "python3.*webui.py" >/dev/null 2>&1; then
+    # 进程存在，验证端口是否响应
+    if command -v curl >/dev/null 2>&1; then
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${WEBUI_PORT}/" --connect-timeout 2 2>/dev/null)
+        if [ "$HTTP_CODE" = "200" ]; then
+            echo "WebUI 已在运行（端口 ${WEBUI_PORT}），直接打开浏览器"
+            am start -a android.intent.action.VIEW -d "http://127.0.0.1:${WEBUI_PORT}" 2>/dev/null \
+              || echo "请手动访问 http://127.0.0.1:${WEBUI_PORT}"
+            exit 0
+        fi
+    fi
+    # 进程存在但端口无响应（僵尸进程），清理后重启
+    echo "检测到残留进程，清理中..."
+fi
+
+# ---------- 清理端口占用 ----------
+pkill -f "python3.*webui.py" 2>/dev/null
 sleep 0.5
 if command -v fuser >/dev/null 2>&1; then
     fuser -k ${WEBUI_PORT}/tcp >/dev/null 2>&1
