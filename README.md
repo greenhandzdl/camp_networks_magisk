@@ -5,8 +5,13 @@
 **特点**：
 - 全新移动端 WebUI，暗色主题，触控友好
 - 通过 WebUI 配置账号信息，支持 AJAX 无刷新操作
-- 内置上游自动检测更新，一键下载最新 Release
-- 支持 IPv6 自动获取
+- 多账户管理：保存/切换多个账号
+- 自动认证：接入目标 WiFi 后自动触发认证并按间隔重跑
+- 登出功能：一键断开校园网认证
+- 开机自动打开面板（可配置）
+- 自定义渠道后缀管理
+- 内置更新检测（GitHub / jsDelivr CDN 双渠道）
+- IPv6 自动获取（三级策略：接口 → socket 探测 → 全接口扫描）
 - GitHub Actions 自动构建 Release
 
 ---
@@ -18,19 +23,28 @@ camp_networks_magisk/
 ├── .github/workflows/
 │   └── release.yml                # GitHub Actions 自动构建 Release
 ├── scripts/
-│   └── bump_version.sh            # 版本管理脚本（自动更新 module.prop + 打标签）
+│   └── bump_version.sh            # 版本管理脚本
 ├── LICENSE
 ├── README.md
 └── drcom-wlan-login/              # Magisk 模块根目录
     ├── module.prop                # 模块元信息
-    ├── action.sh                  # Magisk Manager 操作按钮入口
-    ├── start_webui.sh             # 启动 WebUI 服务（含进程管理）
-    ├── uninstall.sh               # 卸载时清理配置文件
+    ├── action.sh                  # Magisk Manager 操作按钮 → 启动 WebUI
+    ├── service.sh                 # 开机自启脚本（读取 AUTO_OPEN_WEBUI 配置）
+    ├── start_webui.sh             # 启动 WebUI 服务（含端口冲突检测）
+    ├── uninstall.sh               # 卸载时清理数据目录
     └── system/
         └── bin/                   # 子模块：camp_networks 仓库
             └── python_vers/
+                ├── webui.py       # WebUI HTTP 服务主程序
                 ├── wlan_login.py  # 认证核心脚本
-                ├── webui.py       # WebUI 服务（端口 38080）
+                ├── wlan_logout.py # 登出脚本
+                ├── webui_utils/
+                │   ├── auth.py    # 任务执行器 + 自动认证循环
+                │   ├── config.py  # 配置读写 + 账号/渠道管理
+                │   ├── constants.py # 全局常量定义
+                │   ├── html.py    # WebUI HTML 模板
+                │   ├── network.py # 网络信息获取
+                │   └── update.py  # 更新检测与下载
                 └── requirements.txt
 ```
 
@@ -66,7 +80,10 @@ camp_networks_magisk/
 sh /data/adb/modules/drcom-wlan-login/start_webui.sh
 ```
 
-> 重复执行启动脚本会自动杀掉旧进程并重启服务。
+> 如果 WebUI 已在运行，重复执行启动脚本会直接打开浏览器，不会重启服务。
+
+#### 开机自动启动
+在 WebUI 设置页开启「开机自动打开面板」后，手机重启时会自动启动 WebUI 并打开浏览器。
 
 ### 配置与认证
 
@@ -75,16 +92,32 @@ sh /data/adb/modules/drcom-wlan-login/start_webui.sh
 3. **填写配置**：账号、密码、运营商后缀（如 `@cmcc`），点击 **「保存配置」**。
 4. **触发认证**：点击 **「立即认证」**，页面将实时显示执行结果。
 
+### 多账户管理
+
+- 在设置页的「多账户设置」卡片中，可保存/删除/还原多个账号
+- 从下拉列表选择已保存账号，自动填充到认证配置
+
+### 登出
+
+- 在认证页点击 **「登出」** 按钮，一键断开校园网认证
+
+### 自动认证
+
+- 在「自动」页启用自动认证，配置目标 WiFi 名称
+- 接入目标 WiFi 后自动触发认证，按设定间隔重跑，断开 WiFi 自动停止
+
 ---
 
 ## 📦 自动更新
 
-WebUI 内置了更新检测功能：
+WebUI 内置了更新检测功能，支持两个渠道：
 
-1. 在 WebUI 页面点击 **「检查更新」**
-2. 自动查询 GitHub Releases 获取最新版本
-3. 如有新版本，点击 **「下载并安装更新」** 自动下载 `.zip` 文件
-4. 在 Magisk Manager 中从本地安装下载的 `.zip` 完成更新
+| 渠道 | 说明 |
+|------|------|
+| **GitHub** | 实时更新最快，但国内连接可能不稳定 |
+| **CDN (jsDelivr)** | 国内访问快速稳定，但缓存可能导致更新延迟数小时 |
+
+可在设置页切换更新渠道。
 
 ---
 
@@ -110,8 +143,8 @@ WebUI 内置了更新检测功能：
 
 脚本会自动：
 - 更新 `module.prop` 中的 `version` 和 `versionCode`
-- 提交变更
-- 创建带注释的 Git 标签（包含自上一标签以来的提交信息）
+- 同步更新 `update.json`
+- 提交变更并创建带注释的 Git 标签
 - 可选推送到远程
 
 ### GitHub Actions 自动构建
@@ -125,13 +158,20 @@ WebUI 内置了更新检测功能：
 
 ## ⚙️ 配置文件说明
 
-- 配置文件 `config.env` 位于模块根目录：`/data/adb/modules/drcom-wlan-login/config.env`
+- 配置文件 `config.env` 位于独立数据目录：`/data/adb/drcom-wlan-login/config.env`
+- 刷入新版模块不会丢失配置（数据目录与模块目录分离）
 - 由 WebUI 自动生成，也可手动编辑（需 root 权限）：
   ```ini
   USERNAME=your_username
   PASSWORD=your_password
-  ACCOUNT_SUFFIX=@cmcc
+  SUFFIX=@cmcc
   DEBUG=false
+  PORT=38080
+  AUTO_RUN=false
+  TARGET_ESSID=
+  AUTO_OPEN_WEBUI=false
+  AUTH_SERVER=10.0.1.5
+  REDIRECT_SERVER=1.2.3.4
   ```
 
 ---
@@ -139,7 +179,7 @@ WebUI 内置了更新检测功能：
 ## 🔌 端口说明
 
 - 默认端口：**38080**
-- 如需修改，编辑 `webui.py` 中的 `PORT` 变量
+- 可通过 WebUI 设置页修改端口号（修改后需通过 Magisk Manager 重启服务）
 
 ---
 
