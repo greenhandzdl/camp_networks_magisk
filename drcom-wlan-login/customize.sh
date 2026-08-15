@@ -28,3 +28,16 @@ fi
 
 # 配置不随 zip 分发，清理可能残留的配置文件
 rm -f "$MODPATH/config.env"
+
+# ---------- APK 自动安装 ----------
+# BOOTMODE（Magisk Manager 安装）且有内嵌 APK 时自动安装/更新
+APK_PATH="$MODPATH/apk/DrCom.apk"
+if [ "$BOOTMODE" = true ] && [ -f "$APK_PATH" ]; then
+    ui_print "- 安装内嵌 APK..."
+    if pm install -r "$APK_PATH" >/dev/null 2>&1; then
+        ui_print "  APK 安装成功"
+    else
+        ui_print "  APK 自动安装失败（不影响模块）"
+        ui_print "  可稍后在 Magisk 模块页点击 action 手动安装"
+    fi
+fi

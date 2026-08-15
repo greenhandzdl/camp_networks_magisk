@@ -9,7 +9,89 @@ permissions:
   contents: write
 
 jobs:
+  # ============================================================
+  # Job 1: 构建 Kivy APK（与 build job 并行，build 依赖此 job）
+  # ============================================================
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install buildozer and system deps
+        run: |
+          pip install --upgrade pip buildozer
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool pkg-config \
+            zlib1g-dev libffi-dev libssl-dev \
+            libltdl-dev cmake ninja-build \
+            openjdk-17-jdk-headless
+
+      - name: Cache buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            drcom-wlan-login/system/bin/android_app/.buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
+          restore-keys: buildozer-${{ runner.os }}-
+
+      - name: Read module.prop version
+        id: prop
+        run: |
+          VERSION=$(grep '^version=' drcom-wlan-login/module.prop | cut -d= -f2)
+          VERSION_CODE=$(grep '^versionCode=' drcom-wlan-login/module.prop | cut -d= -f2)
+          # 去除 v 前缀作为 APK versionName
+          VERSION_NAME="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "versionName=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        env:
+          VERSION_NAME: ${{ steps.prop.outputs.versionName }}
+          VERSION_CODE: ${{ steps.prop.outputs.versionCode }}
+        run: |
+          cd drcom-wlan-login/system/bin/android_app
+          chmod +x build_apk.sh
+          bash build_apk.sh
+
+      - name: Locate and rename APK
+        id: apk
+        run: |
+          VERSION="${{ steps.prop.outputs.version }}"
+          APK_DIR="drcom-wlan-login/system/bin/android_app/bin"
+          APK=$(find "$APK_DIR" -name "*.apk" -type f | head -1)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK found in $APK_DIR"
+            ls -la "$APK_DIR" || true
+            exit 1
+          fi
+          APK_NAME="DrCOM-WLAN-${VERSION}.apk"
+          cp "$APK" "$APK_NAME"
+          echo "path=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "APK built: $APK_NAME ($(du -h "$APK_NAME" | cut -f1))"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 30
+
+  # ============================================================
+  # Job 2: 构建 Magisk 模块 zip（内嵌 APK）+ 发布 Release
+  # ============================================================
   build:
+    needs: build-apk
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,11 +114,29 @@ jobs:
           echo "REPO=${{ github.repository }}" >> "$GITHUB_ENV"
           echo "TAG_NAME=$TAG" >> "$GITHUB_ENV"
 
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: drcom-wlan-login/apk
+
+      - name: Rename APK to standard name
+        run: |
+          APK=$(find drcom-wlan-login/apk -name "*.apk" -type f | head -1)
+          if [ -n "$APK" ] && [ "$APK" != "drcom-wlan-login/apk/DrCom.apk" ]; then
+            mv "$APK" drcom-wlan-login/apk/DrCom.apk
+          fi
+          echo "APK embedded:"
+          ls -lh drcom-wlan-login/apk/
+
       - name: Build Magisk Module ZIP
         run: |
           cd drcom-wlan-login
           zip -r ../drcom-wlan-login.zip . \
-            -x '.git*' '*/.git*' '*.pyc' '__pycache__/*' '*/__pycache__/*' '.DS_Store' '*/.DS_Store'
+            -x '.git*' '*/.git*' '*.pyc' '__pycache__/*' '*/__pycache__/*' \
+            '.DS_Store' '*/.DS_Store' \
+            'system/bin/android_app/*' 'system/bin/.buildozer/*' \
+            'system/bin/python_vers/.venv/*' 'system/bin/python_vers/tests/*'
 
       - name: Generate update.json
         run: |
@@ -61,13 +161,21 @@ jobs:
             请查看 [提交记录](https://github.com/${{ env.REPO }}/commits) 获取详细变更。
 
             ### 安装方式
-            1. 下载下方 `.zip` 文件
+
+            **方式一：Magisk 模块（推荐，需 root）**
+            1. 下载下方 `drcom-wlan-login.zip`
             2. 在 Magisk Manager 中选择「从本地安装」
-            3. 刷入后重启（推荐）
+            3. 刷入后重启；模块会自动安装内嵌的 APK
+            4. 或在 Magisk 模块页点击 action 按钮安装/更新 APK
+
+            **方式二：独立 APK（无 root 可用）**
+            1. 下载下方 `DrCOM-WLAN-*.apk`
+            2. 直接安装使用（本地模式，复用认证核心代码）
 
             > Magisk Manager 已集成自动更新检测，有新版本时会在模块页面显示更新按钮。
           files: |
             drcom-wlan-login.zip
+            DrCOM-WLAN-*.apk
             update.json
           draft: false
           prerelease: false
@@ -75,34 +183,38 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 必须放在最后：切换分支会清理工作区文件
-      - name: Publish zip to releases branch (jsDelivr CDN 加速)
+      - name: Publish zip and apk to releases branch (jsDelivr CDN 加速)
         run: |
           TAG="$TAG_NAME"
           NEW_ZIP="/tmp/${TAG}.zip"
+          NEW_APK=$(find . -maxdepth 2 -name "DrCOM-WLAN-*.apk" -type f | head -1)
           cp drcom-wlan-login.zip "$NEW_ZIP"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 1. 备份已有 releases 分支的所有 zip（保留历史版本）
+          # 1. 备份已有 releases 分支的所有资产（zip + apk，保留历史版本）
           BACKUP_DIR="/tmp/releases_backup"
           mkdir -p "$BACKUP_DIR"
           git fetch origin releases --depth 1 2>/dev/null || true
           if git show-ref --verify --quiet refs/remotes/origin/releases; then
-            # 列出远程 releases 分支的所有 zip 文件并复制到备份目录
-            for f in $(git ls-tree --name-only origin/releases | grep '\.zip$'); do
+            for f in $(git ls-tree --name-only origin/releases | grep -E '\.(zip|apk)$'); do
               git show "origin/releases:$f" > "$BACKUP_DIR/$f"
             done
           fi
-          # 加入本次新 zip + 更新 latest.zip
+          # 加入本次新 zip + apk + 更新 latest
           cp "$NEW_ZIP" "$BACKUP_DIR/${TAG}.zip"
           cp "$NEW_ZIP" "$BACKUP_DIR/latest.zip"
+          if [ -n "$NEW_APK" ]; then
+            cp "$NEW_APK" "$BACKUP_DIR/$(basename "$NEW_APK")"
+            cp "$NEW_APK" "$BACKUP_DIR/latest.apk"
+          fi
 
           # 2. 重建 orphan 分支（始终只有 1 个 commit，无历史）
           git checkout --orphan releases
           git rm -rf --cached . >/dev/null 2>&1 || true
           git clean -fd >/dev/null 2>&1 || true
-          cp "$BACKUP_DIR"/*.zip .
-          git add *.zip
+          cp "$BACKUP_DIR"/* .
+          git add *.zip *.apk 2>/dev/null || git add *.zip
           git commit -m "release: ${TAG}"
           git push --force origin releases
 
@@ -113,7 +225,7 @@ jobs:
           REPO="${{ env.REPO }}"
           for round in 1 2 3; do
             echo "=== Purge round $round ==="
-            for path in "@main/update.json" "@releases/latest.zip" "@releases/${TAG}.zip"; do
+            for path in "@main/update.json" "@releases/latest.zip" "@releases/${TAG}.zip" "@releases/latest.apk"; do
               status=$(curl -s "https://purge.jsdelivr.net/gh/${REPO}${path}" | python3 -c "import json,sys;d=json.load(sys.stdin);p=d.get('paths',{});k=list(p.keys())[0] if p else '';print('throttled' if p.get(k,{}).get('throttled') else 'ok')" 2>/dev/null || echo "error")
               echo "  ${path}: ${status}"
             done
