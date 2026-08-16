@@ -104,7 +104,7 @@ jobs:
           # 清除可能从缓存恢复的 master 版本
           rm -rf "$P4A_DIR"
           mkdir -p "$(dirname "$P4A_DIR")"
-          git clone -b 2024.1.21 --depth 1 https://github.com/kivy/python-for-android.git "$P4A_DIR"
+          git clone -b v2024.01.21 --depth 1 https://github.com/kivy/python-for-android.git "$P4A_DIR"
           # buildozer 会执行 git checkout master + git pull
           # 创建 master 分支指向 tag commit，使 checkout 为 no-op
           cd "$P4A_DIR"
