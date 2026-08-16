@@ -55,24 +55,44 @@ jobs:
           echo "versionName=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "versionCode=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: Accept Android SDK licenses
+      - name: Pre-install Android SDK
         run: |
-          # 预创建 license 文件（buildozer 自动下载 SDK 时会检查这些 hash）
+          # buildozer 自带的 commandlinetools 路径兼容有问题
+          # (新版 cmdline-tools/latest/ vs buildozer 期望的 tools/)
+          # 解决方案：预装 SDK 并通过 ANDROIDSDK 环境变量告知 buildozer
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-          LIC_DIR="$SDK_DIR/licenses"
-          mkdir -p "$LIC_DIR"
-          # Android SDK License
-          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$LIC_DIR/android-sdk-license"
-          # Android SDK Preview License
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$LIC_DIR/android-sdk-preview-license"
-          # Android SDK Arm Native Platform
-          echo -e "\nd975f751698a77e662f1cd747c4c07760e50266c" > "$LIC_DIR/android-googletv-license"
-          # Google APIs
-          echo -e "\n33b6a2b64607f11b759f320ef9dff4ae5e47d92a" > "$LIC_DIR/google-gdk-license"
-          echo "SDK licenses pre-accepted at $LIC_DIR"
+
+          # 如果缓存恢复了 SDK 且 sdkmanager 存在，跳过安装
+          if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "SDK already installed (from cache), skipping..."
+            "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>/dev/null | head -10 || true
+            exit 0
+          fi
+
+          mkdir -p "$SDK_DIR/cmdline-tools"
+
+          # 1. 下载 commandlinetools
+          cd /tmp
+          wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -O cmdtools.zip
+
+          # 2. 解压到 cmdline-tools/latest/ (新版标准结构)
+          unzip -q cmdtools.zip -d /tmp/cmdtools-tmp
+          mv /tmp/cmdtools-tmp/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
+          rm -rf cmdtools.zip /tmp/cmdtools-tmp
+
+          # 3. 用 sdkmanager 安装必要组件 + 自动接受 license
+          export ANDROIDSDK="$SDK_DIR"
+          yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
+          "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-33"
+
+          echo "Android SDK pre-installed at $SDK_DIR"
 
       - name: Build APK
         env:
+          ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
           VERSION_NAME: ${{ steps.prop.outputs.versionName }}
           VERSION_CODE: ${{ steps.prop.outputs.versionCode }}
         run: |
