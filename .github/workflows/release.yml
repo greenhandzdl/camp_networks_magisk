@@ -65,6 +65,8 @@ jobs:
           # 如果缓存恢复了 SDK 且 sdkmanager 存在，跳过安装
           if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
             echo "SDK already installed (from cache), skipping..."
+            # 确保 tools 符号链接存在（缓存可能不保留 symlink）
+            ln -sfn "$SDK_DIR/cmdline-tools/latest" "$SDK_DIR/tools"
             "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>/dev/null | head -10 || true
             exit 0
           fi
@@ -87,6 +89,10 @@ jobs:
             "platform-tools" \
             "build-tools;34.0.0" \
             "platforms;android-33"
+
+          # 4. 创建 tools -> cmdline-tools/latest 符号链接
+          #    buildozer/p4a 检查旧路径 tools/bin/sdkmanager，实际在新版 cmdline-tools/latest/bin/ 中
+          ln -sfn "$SDK_DIR/cmdline-tools/latest" "$SDK_DIR/tools"
 
           echo "Android SDK pre-installed at $SDK_DIR"
 
