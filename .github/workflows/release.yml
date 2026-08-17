@@ -98,20 +98,18 @@ jobs:
 
       - name: Pre-clone p4a stable release
         run: |
-          # buildozer 硬编码克隆 master 分支，master 默认 Python 3.14 有 pip 问题
-          # 解决方案：预先克隆 2024.1.21 稳定版到 buildozer 期望的路径
-          P4A_DIR="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform/python-for-android"
-          # 清除可能从缓存恢复的 master 版本
-          rm -rf "$P4A_DIR"
-          mkdir -p "$(dirname "$P4A_DIR")"
-          git clone -b v2024.01.21 --depth 1 https://github.com/kivy/python-for-android.git "$P4A_DIR"
-          # buildozer 会执行 git checkout master + git pull
-          # 创建 master 分支指向 tag commit，使 checkout 为 no-op
-          cd "$P4A_DIR"
-          git checkout -b master
-          # 设置无效的 remote 使 git pull 失败但不中断（保留 tag 代码）
-          git remote set-url origin .
-          echo "p4a 2024.1.21 cloned to $P4A_DIR"
+          # buildozer 默认克隆 master 分支，其默认 Python 3.14 有 pip 兼容问题
+          # 解决方案：预克隆 v2024.01.21 稳定版到独立目录
+          # buildozer.spec 通过 p4a.source_dir 指向此目录，完全跳过 git 操作
+          P4A_SOURCE="$HOME/p4a-source"
+          if [ -d "$P4A_SOURCE" ] && [ -f "$P4A_SOURCE/setup.py" ]; then
+            echo "p4a source already exists at $P4A_SOURCE, skipping..."
+          else
+            rm -rf "$P4A_SOURCE"
+            git clone -b v2024.01.21 --depth 1 https://github.com/kivy/python-for-android.git "$P4A_SOURCE"
+            echo "p4a v2024.01.21 cloned to $P4A_SOURCE"
+          fi
+          cd "$P4A_SOURCE"
           git log --oneline -1
 
       - name: Build APK
