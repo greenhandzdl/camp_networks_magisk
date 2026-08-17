@@ -184,8 +184,12 @@ jobs:
           if [ -n "$APK" ] && [ "$APK" != "drcom-wlan-login/apk/DrCom.apk" ]; then
             mv "$APK" drcom-wlan-login/apk/DrCom.apk
           fi
+          # 复制一份到根目录用于 Release 发布
+          VERSION="${{ steps.prop.outputs.version }}"
+          cp drcom-wlan-login/apk/DrCom.apk "DrCOM-WLAN-${VERSION}.apk"
           echo "APK embedded:"
           ls -lh drcom-wlan-login/apk/
+          ls -lh DrCOM-WLAN-*.apk
 
       - name: Build Magisk Module ZIP
         run: |
