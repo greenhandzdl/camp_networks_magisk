@@ -74,15 +74,31 @@ jobs:
           EOF
           echo "Version injected: $VERSION_NAME (code=$VERSION_CODE)"
 
-      - name: Accept Android SDK licenses
+      - name: Accept Android SDK licenses and fix paths
         run: |
-          # 直接创建 license 哈希文件，无需 sdkmanager
-          LICENSE_DIR="/github/home/.buildozer/android/platform/android-sdk/licenses"
+          SDK_DIR="/github/home/.buildozer/android/platform/android-sdk"
+          # 直接创建 license 哈希文件
+          LICENSE_DIR="$SDK_DIR/licenses"
           mkdir -p "$LICENSE_DIR"
           echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$LICENSE_DIR/android-sdk-license"
           echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$LICENSE_DIR/android-sdk-preview-license"
           echo -e "\nd975f751698a77e662f1cd748a47e097b8cf5e8" > "$LICENSE_DIR/intel-android-extra-license"
-          echo "SDK license files created"
+          # 预装 commandlinetools 并创建 tools 符号链接
+          # buildozer/p4a 检查 tools/bin/sdkmanager，新版在 cmdline-tools/latest/
+          if [ ! -x "$SDK_DIR/tools/bin/sdkmanager" ] && [ ! -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+            mkdir -p "$SDK_DIR/cmdline-tools"
+            cd /tmp
+            wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -O cmdtools.zip
+            unzip -q cmdtools.zip -d /tmp/cmdtools-tmp
+            mv /tmp/cmdtools-tmp/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
+            rm -rf cmdtools.zip /tmp/cmdtools-tmp
+          fi
+          # 创建 tools -> cmdline-tools/latest 符号链接
+          if [ -d "$SDK_DIR/cmdline-tools/latest" ]; then
+            ln -sfn "$SDK_DIR/cmdline-tools/latest" "$SDK_DIR/tools"
+          fi
+          echo "SDK setup complete at $SDK_DIR"
+          ls -la "$SDK_DIR/" 2>/dev/null || true
 
       - name: Build APK
         working-directory: drcom-wlan-login/system/bin/android_app
