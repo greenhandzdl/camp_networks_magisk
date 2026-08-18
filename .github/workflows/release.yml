@@ -88,8 +88,8 @@ jobs:
           if [ ! -x "$SDK_DIR/tools/bin/sdkmanager" ] && [ ! -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
             mkdir -p "$SDK_DIR/cmdline-tools"
             cd /tmp
-            wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -O cmdtools.zip
-            unzip -q cmdtools.zip -d /tmp/cmdtools-tmp
+            curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o cmdtools.zip
+            python3 -c "import zipfile; zipfile.ZipFile('/tmp/cmdtools.zip').extractall('/tmp/cmdtools-tmp')"
             mv /tmp/cmdtools-tmp/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
             rm -rf cmdtools.zip /tmp/cmdtools-tmp
           fi
