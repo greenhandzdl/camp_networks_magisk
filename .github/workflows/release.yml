@@ -87,11 +87,18 @@ jobs:
           # buildozer/p4a 检查 tools/bin/sdkmanager，新版在 cmdline-tools/latest/
           if [ ! -x "$SDK_DIR/tools/bin/sdkmanager" ] && [ ! -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
             mkdir -p "$SDK_DIR/cmdline-tools"
-            cd /tmp
-            curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o cmdtools.zip
-            python3 -c "import zipfile; zipfile.ZipFile('/tmp/cmdtools.zip').extractall('/tmp/cmdtools-tmp')"
-            mv /tmp/cmdtools-tmp/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
-            rm -rf cmdtools.zip /tmp/cmdtools-tmp
+            python3 -c "
+import urllib.request, zipfile, shutil, os, tempfile
+url = 'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip'
+tmp = tempfile.mkdtemp()
+zip_path = os.path.join(tmp, 'cmdtools.zip')
+urllib.request.urlretrieve(url, zip_path)
+extract_dir = os.path.join(tmp, 'extracted')
+zipfile.ZipFile(zip_path).extractall(extract_dir)
+shutil.move(os.path.join(extract_dir, 'cmdline-tools'), '$SDK_DIR/cmdline-tools/latest')
+shutil.rmtree(tmp)
+print('commandlinetools installed')
+"
           fi
           # 创建 tools -> cmdline-tools/latest 符号链接
           if [ -d "$SDK_DIR/cmdline-tools/latest" ]; then
