@@ -19,7 +19,6 @@ jobs:
       options: --user root
     env:
       BUILDOZER_WARN_ON_ROOT: "0"
-      APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,6 +73,16 @@ jobs:
           __version_code__ = $VERSION_CODE
           EOF
           echo "Version injected: $VERSION_NAME (code=$VERSION_CODE)"
+
+      - name: Accept Android SDK licenses
+        run: |
+          # 直接创建 license 哈希文件，无需 sdkmanager
+          LICENSE_DIR="/github/home/.buildozer/android/platform/android-sdk/licenses"
+          mkdir -p "$LICENSE_DIR"
+          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$LICENSE_DIR/android-sdk-license"
+          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$LICENSE_DIR/android-sdk-preview-license"
+          echo -e "\nd975f751698a77e662f1cd748a47e097b8cf5e8" > "$LICENSE_DIR/intel-android-extra-license"
+          echo "SDK license files created"
 
       - name: Build APK
         working-directory: drcom-wlan-login/system/bin/android_app
