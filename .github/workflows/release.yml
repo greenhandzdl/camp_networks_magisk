@@ -10,10 +10,16 @@ permissions:
 
 jobs:
   # ============================================================
-  # Job 1: 构建 Kivy APK（使用 buildozer-action + Docker 镜像加速）
+  # Job 1: 构建 Kivy APK（使用官方 Docker 镜像加速）
   # ============================================================
   build-apk:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/kivy/buildozer:latest
+      options: --user root
+    env:
+      BUILDOZER_WARN_ON_ROOT: "0"
+      APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,7 +49,6 @@ jobs:
         run: |
           # buildozer 默认克隆 master 分支，其 Python 3.14 有 pip 兼容问题
           # 预克隆 v2024.01.21 稳定版到工作区根目录
-          # buildozer.spec 通过 p4a.source_dir=./p4a-source 指向此目录
           P4A_SOURCE="p4a-source"
           if [ -d "$P4A_SOURCE" ] && [ -f "$P4A_SOURCE/setup.py" ]; then
             echo "p4a source already exists, skipping..."
@@ -56,13 +61,9 @@ jobs:
 
       - name: Prepare APK build
         run: |
-          # 拷贝 drcom_core.py（单一事实源）
           APP_DIR="drcom-wlan-login/system/bin/android_app/app"
           CORE_SRC="drcom-wlan-login/system/bin/python_vers/drcom_core.py"
           cp "$CORE_SRC" "$APP_DIR/drcom_core.py"
-          echo "drcom_core.py synced"
-
-          # 注入版本号
           VERSION_NAME="${{ steps.prop.outputs.versionName }}"
           VERSION_CODE="${{ steps.prop.outputs.versionCode }}"
           SPEC="drcom-wlan-login/system/bin/android_app/buildozer.spec"
@@ -74,19 +75,21 @@ jobs:
           echo "Version injected: $VERSION_NAME (code=$VERSION_CODE)"
 
       - name: Build APK
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
-        with:
-          workdir: drcom-wlan-login/system/bin/android_app
-          command: buildozer android debug
+        working-directory: drcom-wlan-login/system/bin/android_app
+        run: buildozer android debug
 
       - name: Rename APK
         id: apk
         run: |
           VERSION="${{ steps.prop.outputs.version }}"
-          SRC_APK="${{ steps.buildozer.outputs.filename }}"
+          APK=$(find drcom-wlan-login/system/bin/android_app/bin -name "*.apk" -type f | head -1)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK found"
+            ls -la drcom-wlan-login/system/bin/android_app/bin/ || true
+            exit 1
+          fi
           APK_NAME="DrCOM-WLAN-${VERSION}.apk"
-          cp "$SRC_APK" "$APK_NAME"
+          cp "$APK" "$APK_NAME"
           echo "path=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "APK built: $APK_NAME ($(du -h "$APK_NAME" | cut -f1))"
 
