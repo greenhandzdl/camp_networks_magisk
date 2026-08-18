@@ -30,8 +30,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            .buildozer_global
             drcom-wlan-login/system/bin/android_app/.buildozer
+            drcom-wlan-login/system/bin/android_app/p4a-source
           key: buildozer-${{ runner.os }}-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
           restore-keys: buildozer-${{ runner.os }}-
 
@@ -48,8 +48,9 @@ jobs:
       - name: Pre-clone p4a stable release
         run: |
           # buildozer 默认克隆 master 分支，其 Python 3.14 有 pip 兼容问题
-          # 预克隆 v2024.01.21 稳定版到工作区根目录
-          P4A_SOURCE="p4a-source"
+          # 预克隆 v2024.01.21 稳定版到 android_app/p4a-source
+          # buildozer.spec 通过 p4a.source_dir=./p4a-source 指向 (相对于 buildozer 运行目录)
+          P4A_SOURCE="drcom-wlan-login/system/bin/android_app/p4a-source"
           if [ -d "$P4A_SOURCE" ] && [ -f "$P4A_SOURCE/setup.py" ]; then
             echo "p4a source already exists, skipping..."
           else
