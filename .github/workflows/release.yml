@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   # ============================================================
-  # Job 1: 构建 Kivy APK（与 build job 并行，build 依赖此 job）
+  # Job 1: 构建 Kivy APK（使用 buildozer-action + Docker 镜像加速）
   # ============================================================
   build-apk:
     runs-on: ubuntu-latest
@@ -20,26 +20,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install buildozer and system deps
-        run: |
-          pip install --upgrade pip buildozer
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            autoconf automake libtool pkg-config \
-            zlib1g-dev libffi-dev libssl-dev \
-            libltdl-dev cmake ninja-build \
-            openjdk-17-jdk-headless
-
       - name: Cache buildozer
         uses: actions/cache@v4
         with:
           path: |
-            ~/.buildozer
+            .buildozer_global
             drcom-wlan-login/system/bin/android_app/.buildozer
           key: buildozer-${{ runner.os }}-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
           restore-keys: buildozer-${{ runner.os }}-
@@ -49,92 +34,59 @@ jobs:
         run: |
           VERSION=$(grep '^version=' drcom-wlan-login/module.prop | cut -d= -f2)
           VERSION_CODE=$(grep '^versionCode=' drcom-wlan-login/module.prop | cut -d= -f2)
-          # 去除 v 前缀作为 APK versionName
           VERSION_NAME="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "versionName=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "versionCode=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: Pre-install Android SDK
-        run: |
-          # buildozer 自带的 commandlinetools 路径兼容有问题
-          # (新版 cmdline-tools/latest/ vs buildozer 期望的 tools/)
-          # 解决方案：预装 SDK 并通过 ANDROIDSDK 环境变量告知 buildozer
-          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-
-          # 如果缓存恢复了 SDK 且 sdkmanager 存在，跳过安装
-          if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "SDK already installed (from cache), skipping..."
-            # 确保 tools 符号链接存在（缓存可能不保留 symlink）
-            ln -sfn "$SDK_DIR/cmdline-tools/latest" "$SDK_DIR/tools"
-            "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>/dev/null | head -10 || true
-            exit 0
-          fi
-
-          mkdir -p "$SDK_DIR/cmdline-tools"
-
-          # 1. 下载 commandlinetools
-          cd /tmp
-          wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -O cmdtools.zip
-
-          # 2. 解压到 cmdline-tools/latest/ (新版标准结构)
-          unzip -q cmdtools.zip -d /tmp/cmdtools-tmp
-          mv /tmp/cmdtools-tmp/cmdline-tools "$SDK_DIR/cmdline-tools/latest"
-          rm -rf cmdtools.zip /tmp/cmdtools-tmp
-
-          # 3. 用 sdkmanager 安装必要组件 + 自动接受 license
-          export ANDROIDSDK="$SDK_DIR"
-          yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
-          "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" \
-            "platform-tools" \
-            "build-tools;34.0.0" \
-            "platforms;android-33"
-
-          # 4. 创建 tools -> cmdline-tools/latest 符号链接
-          #    buildozer/p4a 检查旧路径 tools/bin/sdkmanager，实际在新版 cmdline-tools/latest/bin/ 中
-          ln -sfn "$SDK_DIR/cmdline-tools/latest" "$SDK_DIR/tools"
-
-          echo "Android SDK pre-installed at $SDK_DIR"
-
       - name: Pre-clone p4a stable release
         run: |
-          # buildozer 默认克隆 master 分支，其默认 Python 3.14 有 pip 兼容问题
-          # 解决方案：预克隆 v2024.01.21 稳定版到独立目录
-          # buildozer.spec 通过 p4a.source_dir 指向此目录，完全跳过 git 操作
-          P4A_SOURCE="$HOME/p4a-source"
+          # buildozer 默认克隆 master 分支，其 Python 3.14 有 pip 兼容问题
+          # 预克隆 v2024.01.21 稳定版到工作区根目录
+          # buildozer.spec 通过 p4a.source_dir=./p4a-source 指向此目录
+          P4A_SOURCE="p4a-source"
           if [ -d "$P4A_SOURCE" ] && [ -f "$P4A_SOURCE/setup.py" ]; then
-            echo "p4a source already exists at $P4A_SOURCE, skipping..."
+            echo "p4a source already exists, skipping..."
           else
             rm -rf "$P4A_SOURCE"
             git clone -b v2024.01.21 --depth 1 https://github.com/kivy/python-for-android.git "$P4A_SOURCE"
-            echo "p4a v2024.01.21 cloned to $P4A_SOURCE"
+            echo "p4a v2024.01.21 cloned"
           fi
-          cd "$P4A_SOURCE"
-          git log --oneline -1
+          cd "$P4A_SOURCE" && git log --oneline -1
+
+      - name: Prepare APK build
+        run: |
+          # 拷贝 drcom_core.py（单一事实源）
+          APP_DIR="drcom-wlan-login/system/bin/android_app/app"
+          CORE_SRC="drcom-wlan-login/system/bin/python_vers/drcom_core.py"
+          cp "$CORE_SRC" "$APP_DIR/drcom_core.py"
+          echo "drcom_core.py synced"
+
+          # 注入版本号
+          VERSION_NAME="${{ steps.prop.outputs.versionName }}"
+          VERSION_CODE="${{ steps.prop.outputs.versionCode }}"
+          SPEC="drcom-wlan-login/system/bin/android_app/buildozer.spec"
+          sed -i "s|^version = .*|version = $VERSION_NAME|" "$SPEC"
+          cat > "$APP_DIR/version.py" <<EOF
+          __version__ = "$VERSION_NAME"
+          __version_code__ = $VERSION_CODE
+          EOF
+          echo "Version injected: $VERSION_NAME (code=$VERSION_CODE)"
 
       - name: Build APK
-        env:
-          ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
-          VERSION_NAME: ${{ steps.prop.outputs.versionName }}
-          VERSION_CODE: ${{ steps.prop.outputs.versionCode }}
-        run: |
-          cd drcom-wlan-login/system/bin/android_app
-          chmod +x build_apk.sh
-          bash build_apk.sh
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          workdir: drcom-wlan-login/system/bin/android_app
+          command: buildozer android debug
 
-      - name: Locate and rename APK
+      - name: Rename APK
         id: apk
         run: |
           VERSION="${{ steps.prop.outputs.version }}"
-          APK_DIR="drcom-wlan-login/system/bin/android_app/bin"
-          APK=$(find "$APK_DIR" -name "*.apk" -type f | head -1)
-          if [ -z "$APK" ]; then
-            echo "::error::No APK found in $APK_DIR"
-            ls -la "$APK_DIR" || true
-            exit 1
-          fi
+          SRC_APK="${{ steps.buildozer.outputs.filename }}"
           APK_NAME="DrCOM-WLAN-${VERSION}.apk"
-          cp "$APK" "$APK_NAME"
+          cp "$SRC_APK" "$APK_NAME"
           echo "path=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "APK built: $APK_NAME ($(du -h "$APK_NAME" | cut -f1))"
 
