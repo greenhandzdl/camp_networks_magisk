@@ -89,11 +89,18 @@ jobs:
             mkdir -p "$SDK_DIR/cmdline-tools"
             export SDK_DIR
             python3 -c "import urllib.request,zipfile,shutil,os,tempfile;t=tempfile.mkdtemp();z=os.path.join(t,'c.zip');urllib.request.urlretrieve('https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip',z);e=os.path.join(t,'e');zipfile.ZipFile(z).extractall(e);shutil.move(os.path.join(e,'cmdline-tools'),os.path.join(os.environ['SDK_DIR'],'cmdline-tools','latest'));shutil.rmtree(t)"
+            chmod -R +x "$SDK_DIR/cmdline-tools/latest/bin/"
           fi
           # 创建 tools -> cmdline-tools/latest 符号链接
           if [ -d "$SDK_DIR/cmdline-tools/latest" ]; then
+            # 如果 tools 是真实目录（非符号链接），先移除
+            if [ -d "$SDK_DIR/tools" ] && [ ! -L "$SDK_DIR/tools" ]; then
+              rm -rf "$SDK_DIR/tools"
+            fi
             ln -sfn "$SDK_DIR/cmdline-tools/latest" "$SDK_DIR/tools"
           fi
+          # 确保所有 sdkmanager 有执行权限
+          find "$SDK_DIR" -name sdkmanager -type f -exec chmod +x {} \; 2>/dev/null || true
           echo "SDK setup complete at $SDK_DIR"
           ls -la "$SDK_DIR/" 2>/dev/null || true
 
