@@ -247,6 +247,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 将 update.json 同步到 main 分支（APK 版本检测依赖此文件）
+      - name: Sync update.json to main branch
+        run: |
+          cp update.json /tmp/update.json.bak
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          cp /tmp/update.json.bak update.json
+          git add update.json
+          git commit -m "chore: sync update.json for ${{ env.TAG_NAME }} [skip ci]"
+          git push origin main
+
       # 必须放在最后：切换分支会清理工作区文件
       - name: Publish zip and apk to releases branch (jsDelivr CDN 加速)
         run: |
