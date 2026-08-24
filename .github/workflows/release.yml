@@ -253,11 +253,12 @@ jobs:
           cp update.json /tmp/update.json.bak
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout main
+          git fetch origin main
+          git checkout -B main origin/main
           cp /tmp/update.json.bak update.json
           git add update.json
           git commit -m "chore: sync update.json for ${{ env.TAG_NAME }} [skip ci]"
-          git push origin main
+          git push origin main || echo "Warning: failed to sync update.json"
 
       # 必须放在最后：切换分支会清理工作区文件
       - name: Publish zip and apk to releases branch (jsDelivr CDN 加速)
