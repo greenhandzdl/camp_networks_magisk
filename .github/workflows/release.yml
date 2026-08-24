@@ -248,17 +248,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 将 update.json 同步到 main 分支（APK 版本检测依赖此文件）
+      # 使用 GitHub API 直接更新，避免 tag ref 下 git checkout 的复杂性
       - name: Sync update.json to main branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp update.json /tmp/update.json.bak
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout -B main origin/main
-          cp /tmp/update.json.bak update.json
-          git add update.json
-          git commit -m "chore: sync update.json for ${{ env.TAG_NAME }} [skip ci]"
-          git push origin main || echo "Warning: failed to sync update.json"
+          TAG="$TAG_NAME"
+          REPO="${{ env.REPO }}"
+          SHA=$(gh api repos/$REPO/contents/update.json?ref=main --jq .sha)
+          CONTENT=$(base64 -w0 update.json 2>/dev/null || base64 < update.json)
+          gh api -X PUT repos/$REPO/contents/update.json \
+            -f message="chore: sync update.json for ${TAG} [skip ci]" \
+            -f content="$CONTENT" \
+            -f branch=main \
+            -f sha="$SHA" \
+            --jq '.commit.sha' || echo "Warning: failed to sync update.json"
 
       # 必须放在最后：切换分支会清理工作区文件
       - name: Publish zip and apk to releases branch (jsDelivr CDN 加速)
