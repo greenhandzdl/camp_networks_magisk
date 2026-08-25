@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   # ============================================================
@@ -26,20 +27,11 @@ jobs:
           submodules: recursive
 
       - name: Cache buildozer global (SDK/NDK/recipes)
-        id: cache-global
         uses: actions/cache@v4
         with:
           path: /github/home/.buildozer
           key: buildozer-global-v2-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
           restore-keys: buildozer-global-v2-
-
-      - name: Cache p4a local build (compiled recipes + stamp files)
-        id: cache-p4a
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/drcom-wlan-login/system/bin/android_app/.buildozer/android/platform
-          key: p4a-build-v3-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
-          restore-keys: p4a-build-v3-
 
       - name: Cache p4a source
         uses: actions/cache@v4
@@ -47,41 +39,52 @@ jobs:
           path: drcom-wlan-login/system/bin/android_app/p4a-source
           key: p4a-v2024.01.21
 
-      - name: Verify cache restore
+      - name: Restore p4a build cache from artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "=== Cache hit/miss status ==="
-          echo "buildozer-global: cache-hit=${{ steps.cache-global.outputs.cache-hit }}"
-          echo "p4a-build:        cache-hit=${{ steps.cache-p4a.outputs.cache-hit }}"
-          echo ""
-          echo "=== Environment ==="
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "HOME=$HOME"
-          echo "PWD=$PWD"
-          echo "whoami=$(whoami)"
-          echo ""
-          echo "=== p4a platform build cache ==="
           PLATFORM_DIR="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
-          ABS_PLATFORM="$GITHUB_WORKSPACE/$PLATFORM_DIR"
-          echo "relative: $PLATFORM_DIR"
-          echo "absolute: $ABS_PLATFORM"
-          echo "relative exists: $([ -d "$PLATFORM_DIR" ] && echo YES || echo NO)"
-          echo "absolute exists: $([ -d "$ABS_PLATFORM" ] && echo YES || echo NO)"
-          if [ -d "$PLATFORM_DIR" ]; then
-            echo "--- relative dir listing ---"
-            ls -la "$PLATFORM_DIR/" | head -20
-            du -sh "$PLATFORM_DIR"
+          REPO="${{ github.repository }}"
+          echo "Checking for previous p4a build cache..."
+          # 确保 gh CLI 可用
+          if ! command -v gh &>/dev/null; then
+            echo "Installing gh CLI..."
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+            apt-get update -qq && apt-get install -y -qq gh 2>/dev/null
           fi
-          if [ -d "$ABS_PLATFORM" ] && [ "$ABS_PLATFORM" != "$PLATFORM_DIR" ]; then
-            echo "--- absolute dir listing ---"
-            ls -la "$ABS_PLATFORM/" | head -20
-            du -sh "$ABS_PLATFORM"
+          # 尝试从最近的成功构建下载缓存 artifact
+          PREV_RUN=$(gh api "repos/$REPO/actions/runs?status=success&per_page=5" \
+            --jq '.workflow_runs[] | select(.conclusion == "success") | .id' 2>/dev/null | head -1)
+          if [ -n "$PREV_RUN" ]; then
+            echo "Found previous run: $PREV_RUN"
+            ARTIFACT_URL=$(gh api "repos/$REPO/actions/runs/$PREV_RUN/artifacts" \
+              --jq '.artifacts[] | select(.name == "p4a-build-cache") | .archive_download_url' 2>/dev/null | head -1)
+            if [ -n "$ARTIFACT_URL" ]; then
+              echo "Downloading p4a build cache..."
+              curl -sL -o /tmp/p4a-cache.zip -H "Authorization: Bearer $GH_TOKEN" "$ARTIFACT_URL"
+              if [ -f /tmp/p4a-cache.zip ] && [ -s /tmp/p4a-cache.zip ]; then
+                mkdir -p "$(dirname "$PLATFORM_DIR")"
+                cd "$(dirname "$PLATFORM_DIR")"
+                unzip -q -o /tmp/p4a-cache.zip 2>/dev/null || true
+                rm -f /tmp/p4a-cache.zip
+                if [ -d "$(basename "$PLATFORM_DIR")" ]; then
+                  echo "Cache restored! Size: $(du -sh "$(basename "$PLATFORM_DIR")" | cut -f1)"
+                  ls "$(basename "$PLATFORM_DIR")/" | head -10
+                else
+                  echo "Cache zip extracted but platform dir not found"
+                fi
+                cd - >/dev/null
+              else
+                echo "Cache download failed or empty"
+              fi
+            else
+              echo "No p4a-build-cache artifact in run $PREV_RUN"
+            fi
+          else
+            echo "No previous successful run found"
           fi
-          find . -path '*/.buildozer' -type d 2>/dev/null | head -5
-          find . -name '*.stamp' -path '*buildozer*' 2>/dev/null | head -10
-          echo ""
-          echo "=== buildozer global cache ==="
-          du -sh /github/home/.buildozer 2>/dev/null || echo "buildozer global dir missing"
-          ls /github/home/.buildozer/ 2>/dev/null | head -10 || true
+          echo "Platform dir exists: $([ -d "$PLATFORM_DIR" ] && echo YES || echo NO)"
 
       - name: Read module.prop version
         id: prop
@@ -174,6 +177,28 @@ jobs:
           name: apk
           path: ${{ steps.apk.outputs.path }}
           retention-days: 30
+
+      - name: Save p4a build cache as artifact
+        run: |
+          PLATFORM_DIR="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
+          if [ -d "$PLATFORM_DIR" ]; then
+            echo "Saving p4a build cache..."
+            echo "Size: $(du -sh "$PLATFORM_DIR" | cut -f1)"
+            cd "drcom-wlan-login/system/bin/android_app/.buildozer/android"
+            zip -r -q /tmp/p4a-build-cache.zip platform/
+            echo "Compressed: $(du -sh /tmp/p4a-build-cache.zip | cut -f1)"
+            cd - >/dev/null
+          else
+            echo "No platform dir to cache"
+          fi
+
+      - name: Upload p4a build cache artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: p4a-build-cache
+          path: /tmp/p4a-build-cache.zip
+          retention-days: 7
+          overwrite: true
 
   # ============================================================
   # Job 2: 构建 Magisk 模块 zip（内嵌 APK）+ 发布 Release
