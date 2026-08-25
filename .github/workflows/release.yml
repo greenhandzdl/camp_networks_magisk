@@ -40,129 +40,22 @@ jobs:
           key: p4a-v2024.01.21
 
       - name: Restore p4a build cache from artifact
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: p4a-build-cache
+          path: drcom-wlan-login/system/bin/android_app/.buildozer/android
+          run-id: 32874309930
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify restored cache
         run: |
-          echo "DIAG: REPO=$REPO"
-          echo "DIAG: GH_TOKEN length=${#GH_TOKEN}"
-          echo "DIAG: GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
-          echo "DIAG: GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "DIAG: PWD=$PWD"
-          python3 << 'PYEOF'
-          import urllib.request, json, zipfile, os, sys, time, http.client, ssl
-          from urllib.parse import urlparse
-
-          PLATFORM_DIR = "drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
-          REPO = os.environ.get("REPO", "")
-          TOKEN = os.environ.get("GH_TOKEN", "")
-          print(f"Repo: {REPO}, Token length: {len(TOKEN)}")
-
-          def api_get(url):
-              req = urllib.request.Request(url, headers={
-                  "Authorization": f"Bearer {TOKEN}",
-                  "Accept": "application/vnd.github+json",
-              })
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as resp:
-                      return json.loads(resp.read())
-              except Exception as e:
-                  print(f"  API error: {e}")
-                  return None
-
-          def download_file(url, dest):
-              # Use http.client for full control over redirects
-              try:
-                  # Step 1: Get redirect URL from GitHub API
-                  parsed = urlparse(url)
-                  conn = http.client.HTTPSConnection(parsed.hostname, timeout=30)
-                  conn.request("GET", parsed.path, headers={
-                      "Authorization": f"Bearer {TOKEN}",
-                      "Accept": "application/octet-stream",
-                  })
-                  resp = conn.getresponse()
-                  print(f"  Initial response: {resp.status}")
-                  if resp.status in (301, 302, 303, 307):
-                      location = resp.getheader("Location")
-                      print(f"  Redirect -> {location[:80]}...")
-                      conn.close()
-                      # Step 2: Follow redirect (no auth needed for presigned URL)
-                      parsed2 = urlparse(location)
-                      ctx = ssl.create_default_context()
-                      conn2 = http.client.HTTPSConnection(parsed2.hostname, timeout=600, context=ctx)
-                      conn2.request("GET", parsed2.path + ("?" + parsed2.query if parsed2.query else ""))
-                      resp2 = conn2.getresponse()
-                      print(f"  Download response: {resp2.status}, Content-Length: {resp2.getheader('Content-Length', 'unknown')}")
-                      data = resp2.read()
-                      conn2.close()
-                      with open(dest, "wb") as f:
-                          f.write(data)
-                      return len(data)
-                  else:
-                      data = resp.read()
-                      conn.close()
-                      print(f"  Non-redirect response: {resp.status}, size={len(data)}")
-                      with open(dest, "wb") as f:
-                          f.write(data)
-                      return len(data)
-              except Exception as e:
-                  print(f"  Download error: {e}")
-                  return 0
-
-          print("=== p4a build cache restore (python3) ===")
-          # 直接查询仓库的 artifacts 列表（比遍历 runs 更可靠）
-          arts_data = api_get(f"https://api.github.com/repos/{REPO}/actions/artifacts?per_page=20")
-          if not arts_data:
-              print("Failed to fetch artifacts")
-              sys.exit(0)
-
-          artifact_url = None
-          for art in arts_data.get("artifacts", []):
-              if art["name"] == "p4a-build-cache":
-                  artifact_url = art["archive_download_url"]
-                  art_size = art.get("size_in_bytes", 0)
-                  art_created = art.get("created_at", "unknown")
-                  print(f"Found artifact: size={art_size/1024/1024:.1f}MB, created={art_created}")
-                  break
-
-          if not artifact_url:
-              print("No p4a-build-cache artifact found")
-              sys.exit(0)
-
-          cache_zip = "/tmp/p4a-cache.zip"
-          print(f"Downloading p4a build cache...")
-          t0 = time.time()
-          size = download_file(artifact_url, cache_zip)
-          elapsed = time.time() - t0
-          print(f"Downloaded {size / 1024 / 1024:.1f} MB in {elapsed:.1f}s")
-
-          if size < 1_000_000:
-              print("Download too small, skipping")
-              sys.exit(0)
-
-          parent = os.path.dirname(PLATFORM_DIR)
-          os.makedirs(parent, exist_ok=True)
-          print(f"Extracting to {parent}/...")
-          t0 = time.time()
-          try:
-              with zipfile.ZipFile(cache_zip, "r") as z:
-                  z.extractall(parent)
-                  print(f"Extracted {len(z.namelist())} entries in {time.time()-t0:.1f}s")
-          except Exception as e:
-              print(f"Extract error: {e}")
-              sys.exit(0)
-          finally:
-              os.remove(cache_zip)
-
-          if os.path.isdir(PLATFORM_DIR):
-              total = sum(os.path.getsize(os.path.join(dp, f))
-                          for dp, _, fns in os.walk(PLATFORM_DIR) for f in fns)
-              print(f"Cache restored! Size: {total / 1024 / 1024:.1f} MB")
-              print(f"Contents: {os.listdir(PLATFORM_DIR)[:10]}")
-          else:
-              print(f"Platform dir not found at {PLATFORM_DIR}")
-              print(f"Parent contents: {os.listdir(parent)[:10]}")
-          PYEOF
+          PLATFORM="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
+          echo "Platform exists: $([ -d "$PLATFORM" ] && echo YES || echo NO)"
+          if [ -d "$PLATFORM" ]; then
+            echo "Size: $(du -sh "$PLATFORM" | cut -f1)"
+            ls "$PLATFORM/" | head -10
+          fi
 
       - name: Read module.prop version
         id: prop
