@@ -110,28 +110,19 @@ jobs:
                   return 0
 
           print("=== p4a build cache restore (python3) ===")
-          runs_data = api_get(f"https://api.github.com/repos/{REPO}/actions/runs?per_page=10")
-          if not runs_data:
-              print("Failed to fetch runs")
+          # 直接查询仓库的 artifacts 列表（比遍历 runs 更可靠）
+          arts_data = api_get(f"https://api.github.com/repos/{REPO}/actions/artifacts?per_page=20")
+          if not arts_data:
+              print("Failed to fetch artifacts")
               sys.exit(0)
 
-          runs = runs_data.get("workflow_runs", [])
-          print(f"Found {len(runs)} recent runs")
-
           artifact_url = None
-          found_run = None
-          for run in runs:
-              run_id = run["id"]
-              arts_data = api_get(f"https://api.github.com/repos/{REPO}/actions/runs/{run_id}/artifacts")
-              if not arts_data:
-                  continue
-              for art in arts_data.get("artifacts", []):
-                  if art["name"] == "p4a-build-cache":
-                      artifact_url = art["archive_download_url"]
-                      found_run = run_id
-                      break
-              if artifact_url:
-                  print(f"Found p4a-build-cache in run {run_id}")
+          for art in arts_data.get("artifacts", []):
+              if art["name"] == "p4a-build-cache":
+                  artifact_url = art["archive_download_url"]
+                  art_size = art.get("size_in_bytes", 0)
+                  art_created = art.get("created_at", "unknown")
+                  print(f"Found artifact: size={art_size/1024/1024:.1f}MB, created={art_created}")
                   break
 
           if not artifact_url:
@@ -139,7 +130,7 @@ jobs:
               sys.exit(0)
 
           cache_zip = "/tmp/p4a-cache.zip"
-          print(f"Downloading from run {found_run}...")
+          print(f"Downloading p4a build cache...")
           t0 = time.time()
           size = download_file(artifact_url, cache_zip)
           elapsed = time.time() - t0
