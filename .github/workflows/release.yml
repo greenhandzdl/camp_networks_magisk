@@ -19,8 +19,6 @@ jobs:
       options: --user root
     env:
       BUILDOZER_WARN_ON_ROOT: "0"
-      USE_CCACHE: "1"
-      NDK_CCACHE: /usr/bin/ccache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,13 +33,13 @@ jobs:
           key: buildozer-global-v2-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
           restore-keys: buildozer-global-v2-
 
-      - name: Cache ccache (NDK compilation cache)
+      - name: Cache p4a local build (compiled recipes + stamp files)
         uses: actions/cache@v4
         with:
           path: |
-            /github/home/.ccache
-          key: ccache-v1-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
-          restore-keys: ccache-v1-
+            drcom-wlan-login/system/bin/android_app/.buildozer/android/platform/build-*
+          key: p4a-build-v2-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
+          restore-keys: p4a-build-v2-
 
       - name: Cache p4a source
         uses: actions/cache@v4
@@ -49,6 +47,14 @@ jobs:
           path: |
             drcom-wlan-login/system/bin/android_app/p4a-source
           key: p4a-v2024.01.21
+
+      - name: Cache Gradle distribution
+        uses: actions/cache@v4
+        with:
+          path: |
+            /github/home/.gradle
+          key: gradle-v1-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
+          restore-keys: gradle-v1-
 
       - name: Read module.prop version
         id: prop
@@ -90,10 +96,8 @@ jobs:
           EOF
           echo "Version injected: $VERSION_NAME (code=$VERSION_CODE)"
 
-      - name: Install ccache and fix SDK
+      - name: Fix SDK licenses and tools
         run: |
-          apt-get update -qq && apt-get install -y -qq ccache >/dev/null 2>&1 || true
-          ccache -M 2G 2>/dev/null || true
           SDK_DIR="/github/home/.buildozer/android/platform/android-sdk"
           # 直接创建 license 哈希文件（SDK 可能未预装时需要）
           LICENSE_DIR="$SDK_DIR/licenses"
@@ -117,14 +121,10 @@ jobs:
           fi
           find "$SDK_DIR" -name sdkmanager -type f -exec chmod +x {} \; 2>/dev/null || true
           echo "SDK setup complete"
-          ls -la "$SDK_DIR/" 2>/dev/null || true
 
       - name: Build APK
         working-directory: drcom-wlan-login/system/bin/android_app
         run: buildozer android debug
-
-      - name: Show ccache stats
-        run: ccache -s 2>/dev/null || true
 
       - name: Rename APK
         id: apk
