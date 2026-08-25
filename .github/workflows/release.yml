@@ -45,42 +45,79 @@ jobs:
         run: |
           PLATFORM_DIR="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
           REPO="${{ github.repository }}"
-          echo "Checking for previous p4a build cache..."
-          # 确保 gh CLI 可用
-          if ! command -v gh &>/dev/null; then
-            echo "Installing gh CLI..."
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
-            apt-get update -qq && apt-get install -y -qq gh 2>/dev/null
-          fi
-          # 遍历最近的运行（不限状态），找到有 p4a-build-cache artifact 的
+          echo "=== p4a build cache restore ==="
+          echo "Tools check:"
+          echo "  curl: $(command -v curl 2>/dev/null && echo OK || echo MISSING)"
+          echo "  python3: $(command -v python3 2>/dev/null && echo OK || echo MISSING)"
+          echo "  unzip: $(command -v unzip 2>/dev/null && echo OK || echo MISSING)"
+          # 用 curl + python3 查找 artifact（不依赖 gh CLI）
+          echo "Fetching recent workflow runs..."
+          RUNS_JSON=$(curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/actions/runs?per_page=10" 2>&1)
+          echo "API response length: ${#RUNS_JSON} bytes"
+          RUN_IDS=$(echo "$RUNS_JSON" | python3 -c "
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              for r in data.get('workflow_runs', []):
+                  print(r['id'])
+          except Exception as e:
+              print(f'ERROR: {e}', file=sys.stderr)
+          " 2>&1)
+          echo "Run IDs found: $(echo $RUN_IDS | tr '\n' ' ')"
           ARTIFACT_URL=""
-          for RUN_ID in $(gh api "repos/$REPO/actions/runs?per_page=10" \
-            --jq '.workflow_runs[].id' 2>/dev/null); do
-            ARTIFACT_URL=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
-              --jq '.artifacts[] | select(.name == "p4a-build-cache") | .archive_download_url' 2>/dev/null | head -1)
-            if [ -n "$ARTIFACT_URL" ]; then
-              echo "Found p4a-build-cache in run $RUN_ID"
+          FOUND_RUN=""
+          for RUN_ID in $RUN_IDS; do
+            ART_JSON=$(curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts" 2>/dev/null)
+            URL=$(echo "$ART_JSON" | python3 -c "
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              for a in data.get('artifacts', []):
+                  if a['name'] == 'p4a-build-cache':
+                      print(a['archive_download_url'])
+                      break
+          except:
+              pass
+          " 2>/dev/null)
+            if [ -n "$URL" ]; then
+              ARTIFACT_URL="$URL"
+              FOUND_RUN="$RUN_ID"
+              echo "Found p4a-build-cache artifact in run $RUN_ID"
               break
             fi
           done
           if [ -n "$ARTIFACT_URL" ]; then
-              echo "Downloading p4a build cache..."
-              curl -sL -o /tmp/p4a-cache.zip -H "Authorization: Bearer $GH_TOKEN" "$ARTIFACT_URL"
-              if [ -f /tmp/p4a-cache.zip ] && [ -s /tmp/p4a-cache.zip ]; then
+              echo "Downloading p4a build cache from run $FOUND_RUN..."
+              HTTP_CODE=$(curl -sL -w '%{http_code}' -o /tmp/p4a-cache.zip \
+                -H "Authorization: Bearer $GH_TOKEN" "$ARTIFACT_URL")
+              FILE_SIZE=$(stat -c%s /tmp/p4a-cache.zip 2>/dev/null || stat -f%z /tmp/p4a-cache.zip 2>/dev/null || echo 0)
+              echo "Download: HTTP $HTTP_CODE, size=${FILE_SIZE} bytes"
+              if [ "$FILE_SIZE" -gt 1000000 ] 2>/dev/null; then
                 mkdir -p "$(dirname "$PLATFORM_DIR")"
                 cd "$(dirname "$PLATFORM_DIR")"
-                unzip -q -o /tmp/p4a-cache.zip 2>/dev/null || true
+                echo "Extracting cache..."
+                python3 -c "
+          import zipfile, sys
+          try:
+              with zipfile.ZipFile('/tmp/p4a-cache.zip', 'r') as z:
+                  z.extractall('.')
+                  print(f'Extracted {len(z.namelist())} entries')
+          except Exception as e:
+              print(f'Extract error: {e}', file=sys.stderr)
+          "
                 rm -f /tmp/p4a-cache.zip
                 if [ -d "$(basename "$PLATFORM_DIR")" ]; then
                   echo "Cache restored! Size: $(du -sh "$(basename "$PLATFORM_DIR")" | cut -f1)"
                   ls "$(basename "$PLATFORM_DIR")/" | head -10
                 else
                   echo "Cache zip extracted but platform dir not found"
+                  ls -la . | head -10
                 fi
                 cd - >/dev/null
               else
-                echo "Cache download failed or empty"
+                echo "Cache download failed (too small or HTTP error)"
               fi
           else
             echo "No p4a-build-cache artifact found in recent runs"
