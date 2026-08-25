@@ -53,14 +53,18 @@ jobs:
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
             apt-get update -qq && apt-get install -y -qq gh 2>/dev/null
           fi
-          # 尝试从最近的成功构建下载缓存 artifact
-          PREV_RUN=$(gh api "repos/$REPO/actions/runs?status=success&per_page=5" \
-            --jq '.workflow_runs[] | select(.conclusion == "success") | .id' 2>/dev/null | head -1)
-          if [ -n "$PREV_RUN" ]; then
-            echo "Found previous run: $PREV_RUN"
-            ARTIFACT_URL=$(gh api "repos/$REPO/actions/runs/$PREV_RUN/artifacts" \
+          # 遍历最近的运行（不限状态），找到有 p4a-build-cache artifact 的
+          ARTIFACT_URL=""
+          for RUN_ID in $(gh api "repos/$REPO/actions/runs?per_page=10" \
+            --jq '.workflow_runs[].id' 2>/dev/null); do
+            ARTIFACT_URL=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
               --jq '.artifacts[] | select(.name == "p4a-build-cache") | .archive_download_url' 2>/dev/null | head -1)
             if [ -n "$ARTIFACT_URL" ]; then
+              echo "Found p4a-build-cache in run $RUN_ID"
+              break
+            fi
+          done
+          if [ -n "$ARTIFACT_URL" ]; then
               echo "Downloading p4a build cache..."
               curl -sL -o /tmp/p4a-cache.zip -H "Authorization: Bearer $GH_TOKEN" "$ARTIFACT_URL"
               if [ -f /tmp/p4a-cache.zip ] && [ -s /tmp/p4a-cache.zip ]; then
@@ -78,11 +82,8 @@ jobs:
               else
                 echo "Cache download failed or empty"
               fi
-            else
-              echo "No p4a-build-cache artifact in run $PREV_RUN"
-            fi
           else
-            echo "No previous successful run found"
+            echo "No p4a-build-cache artifact found in recent runs"
           fi
           echo "Platform dir exists: $([ -d "$PLATFORM_DIR" ] && echo YES || echo NO)"
 
