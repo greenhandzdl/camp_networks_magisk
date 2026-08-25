@@ -42,13 +42,15 @@ jobs:
       - name: Restore p4a build cache from artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
           python3 << 'PYEOF'
           import urllib.request, json, zipfile, os, sys, time
 
           PLATFORM_DIR = "drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
-          REPO = os.environ.get("GITHUB_REPOSITORY", "")
+          REPO = os.environ.get("REPO", "")
           TOKEN = os.environ.get("GH_TOKEN", "")
+          print(f"Repo: {REPO}, Token length: {len(TOKEN)}")
 
           def api_get(url):
               req = urllib.request.Request(url, headers={
