@@ -26,6 +26,7 @@ jobs:
           submodules: recursive
 
       - name: Cache buildozer global (SDK/NDK/recipes)
+        id: cache-global
         uses: actions/cache@v4
         with:
           path: /github/home/.buildozer
@@ -33,9 +34,10 @@ jobs:
           restore-keys: buildozer-global-v2-
 
       - name: Cache p4a local build (compiled recipes + stamp files)
+        id: cache-p4a
         uses: actions/cache@v4
         with:
-          path: drcom-wlan-login/system/bin/android_app/.buildozer/android/platform
+          path: ${{ github.workspace }}/drcom-wlan-login/system/bin/android_app/.buildozer/android/platform
           key: p4a-build-v3-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
           restore-keys: p4a-build-v3-
 
@@ -47,18 +49,39 @@ jobs:
 
       - name: Verify cache restore
         run: |
+          echo "=== Cache hit/miss status ==="
+          echo "buildozer-global: cache-hit=${{ steps.cache-global.outputs.cache-hit }}"
+          echo "p4a-build:        cache-hit=${{ steps.cache-p4a.outputs.cache-hit }}"
+          echo ""
+          echo "=== Environment ==="
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "HOME=$HOME"
+          echo "PWD=$PWD"
+          echo "whoami=$(whoami)"
+          echo ""
           echo "=== p4a platform build cache ==="
           PLATFORM_DIR="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
+          ABS_PLATFORM="$GITHUB_WORKSPACE/$PLATFORM_DIR"
+          echo "relative: $PLATFORM_DIR"
+          echo "absolute: $ABS_PLATFORM"
+          echo "relative exists: $([ -d "$PLATFORM_DIR" ] && echo YES || echo NO)"
+          echo "absolute exists: $([ -d "$ABS_PLATFORM" ] && echo YES || echo NO)"
           if [ -d "$PLATFORM_DIR" ]; then
-            echo "platform dir exists"
+            echo "--- relative dir listing ---"
             ls -la "$PLATFORM_DIR/" | head -20
-            find "$PLATFORM_DIR" -name "*.stamp" | head -10
-            du -sh "$PLATFORM_DIR" 2>/dev/null || true
-          else
-            echo "WARNING: platform dir missing — cache restore failed!"
+            du -sh "$PLATFORM_DIR"
           fi
+          if [ -d "$ABS_PLATFORM" ] && [ "$ABS_PLATFORM" != "$PLATFORM_DIR" ]; then
+            echo "--- absolute dir listing ---"
+            ls -la "$ABS_PLATFORM/" | head -20
+            du -sh "$ABS_PLATFORM"
+          fi
+          find . -path '*/.buildozer' -type d 2>/dev/null | head -5
+          find . -name '*.stamp' -path '*buildozer*' 2>/dev/null | head -10
+          echo ""
           echo "=== buildozer global cache ==="
           du -sh /github/home/.buildozer 2>/dev/null || echo "buildozer global dir missing"
+          ls /github/home/.buildozer/ 2>/dev/null | head -10 || true
 
       - name: Read module.prop version
         id: prop
