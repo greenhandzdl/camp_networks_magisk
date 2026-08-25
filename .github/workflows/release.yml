@@ -28,33 +28,37 @@ jobs:
       - name: Cache buildozer global (SDK/NDK/recipes)
         uses: actions/cache@v4
         with:
-          path: |
-            /github/home/.buildozer
+          path: /github/home/.buildozer
           key: buildozer-global-v2-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
           restore-keys: buildozer-global-v2-
 
       - name: Cache p4a local build (compiled recipes + stamp files)
         uses: actions/cache@v4
         with:
-          path: |
-            drcom-wlan-login/system/bin/android_app/.buildozer/android/platform/build-*
-          key: p4a-build-v2-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
-          restore-keys: p4a-build-v2-
+          path: drcom-wlan-login/system/bin/android_app/.buildozer/android/platform
+          key: p4a-build-v3-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
+          restore-keys: p4a-build-v3-
 
       - name: Cache p4a source
         uses: actions/cache@v4
         with:
-          path: |
-            drcom-wlan-login/system/bin/android_app/p4a-source
+          path: drcom-wlan-login/system/bin/android_app/p4a-source
           key: p4a-v2024.01.21
 
-      - name: Cache Gradle distribution
-        uses: actions/cache@v4
-        with:
-          path: |
-            /github/home/.gradle
-          key: gradle-v1-${{ hashFiles('drcom-wlan-login/system/bin/android_app/buildozer.spec') }}
-          restore-keys: gradle-v1-
+      - name: Verify cache restore
+        run: |
+          echo "=== p4a platform build cache ==="
+          PLATFORM_DIR="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
+          if [ -d "$PLATFORM_DIR" ]; then
+            echo "platform dir exists"
+            ls -la "$PLATFORM_DIR/" | head -20
+            find "$PLATFORM_DIR" -name "*.stamp" | head -10
+            du -sh "$PLATFORM_DIR" 2>/dev/null || true
+          else
+            echo "WARNING: platform dir missing — cache restore failed!"
+          fi
+          echo "=== buildozer global cache ==="
+          du -sh /github/home/.buildozer 2>/dev/null || echo "buildozer global dir missing"
 
       - name: Read module.prop version
         id: prop
