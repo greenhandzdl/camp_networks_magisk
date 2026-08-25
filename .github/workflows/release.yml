@@ -51,10 +51,16 @@ jobs:
       - name: Verify restored cache
         run: |
           PLATFORM="drcom-wlan-login/system/bin/android_app/.buildozer/android/platform"
+          ANDROID_DIR="drcom-wlan-login/system/bin/android_app/.buildozer/android"
           echo "Platform exists: $([ -d "$PLATFORM" ] && echo YES || echo NO)"
+          echo "Android dir contents:"
+          ls -la "$ANDROID_DIR/" 2>/dev/null || echo "Android dir does not exist"
+          echo "Workspace root:"
+          ls -la drcom-wlan-login/system/bin/android_app/ | head -10
+          # 检查是否提取到了错误的位置
+          find drcom-wlan-login/system/bin/android_app/.buildozer -name "platform" -type d 2>/dev/null | head -5
           if [ -d "$PLATFORM" ]; then
             echo "Size: $(du -sh "$PLATFORM" | cut -f1)"
-            ls "$PLATFORM/" | head -10
           fi
 
       - name: Read module.prop version
