@@ -139,9 +139,28 @@ jobs:
           find "$SDK_DIR" -name sdkmanager -type f -exec chmod +x {} \; 2>/dev/null || true
           echo "SDK setup complete"
 
+      - name: Setup APK signing
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_B64 }}" ]; then
+            echo "Decoding release keystore..."
+            echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > /tmp/release.keystore
+            echo "P4A_RELEASE_KEYSTORE=/tmp/release.keystore" >> "$GITHUB_ENV"
+            echo "P4A_RELEASE_KEYALIAS=drcom" >> "$GITHUB_ENV"
+            echo "P4A_RELEASE_KEYSTORE_PASSWD=${{ secrets.ANDROID_KEYSTORE_PASSWD }}" >> "$GITHUB_ENV"
+            echo "P4A_RELEASE_KEYALIAS_PASSWD=${{ secrets.ANDROID_KEYSTORE_PASSWD }}" >> "$GITHUB_ENV"
+            echo "Signing configured (release mode)"
+          else
+            echo "::warning::ANDROID_KEYSTORE_B64 secret not set, using debug signing"
+          fi
+
       - name: Build APK
         working-directory: drcom-wlan-login/system/bin/android_app
-        run: buildozer android debug
+        run: |
+          if [ -n "$P4A_RELEASE_KEYSTORE" ]; then
+            buildozer android release
+          else
+            buildozer android debug
+          fi
 
       - name: Rename APK
         id: apk
